@@ -1,5 +1,7 @@
 // Turns drawn strokes into an OpenType (CFF) font with opentype.js (global `opentype`).
-import { glyphContours, glyphXExtent, mapContours, METRICS } from './geometry.js';
+// Each glyph's stroke pieces are unioned into clean, non-overlapping outlines first
+// (geometry.outlinePolygons) so the font renders correctly in every rasterizer.
+import { outlinePolygons, smoothPath, METRICS } from './geometry.js';
 
 const range = (a, b) => Array.from({ length: b.charCodeAt(0) - a.charCodeAt(0) + 1 }, (_, i) => String.fromCharCode(a.charCodeAt(0) + i));
 
@@ -27,14 +29,33 @@ export function strokesFor(glyphs, ch, settings) {
   if (ch === lo && up !== lo && glyphs[up]?.length) {
     // small-caps: shrink capitals down to x-height, keeping the pen width
     const k = METRICS.xHeight / METRICS.capHeight;
-    return { strokes: glyphs[up].map(st => ({ pts: st.pts.map(([x, y, p]) => [x * k, y * k, p]) })), borrowed: true };
+    return { strokes: glyphs[up].map(st => ({ pts: st.pts.map(([x, y, p]) => [x * k, y * k, p]) })), borrowed: true, scaledFrom: glyphs[up] };
   }
   if (ch === up && up !== lo && glyphs[lo]?.length) return { strokes: glyphs[lo], borrowed: true };
   return { strokes: null, borrowed: false };
 }
 
-export function buildFont(glyphs, settings) {
+// Outline cache: unioning is the expensive part, so keep the result per glyph until its
+// strokes (arrays are replaced, never mutated) or the shape-affecting settings change.
+const cache = new Map();
+const shapeKey = s => `${s.brush}|${s.weight}|${s.pressure}|${s.nibAngle}|${s.slant}`;
+
+function glyphOutline(ch, glyphs, settings) {
+  const { strokes, scaledFrom } = strokesFor(glyphs, ch, settings);
+  if (!strokes) return null;
+  const src = scaledFrom || strokes, key = shapeKey(settings);
+  const hit = cache.get(ch);
+  if (hit && hit.src === src && hit.key === key) return hit.out;
   const t = Math.tan((settings.slant || 0) * Math.PI / 180);
+  const polys = outlinePolygons(strokes, settings, (x, y) => [x + y * t, y]);
+  let min = Infinity, max = -Infinity;
+  for (const p of polys) for (const [x] of p) { if (x < min) min = x; if (x > max) max = x; }
+  const out = polys.length ? { cmds: smoothPath(polys), min, max } : null;
+  cache.set(ch, { src, key, out });
+  return out;
+}
+
+export function buildFont(glyphs, settings) {
   const sb = settings.spacing;
   const list = [
     new opentype.Glyph({ name: '.notdef', unicode: 0, advanceWidth: 500, path: new opentype.Path() }),
@@ -42,26 +63,22 @@ export function buildFont(glyphs, settings) {
   ];
   let count = 0;
   for (const ch of CHARSET) {
-    const { strokes } = strokesFor(glyphs, ch, settings);
-    if (!strokes) continue;
-    const ext = glyphXExtent(strokes, settings, t);
-    if (!ext) continue;
-    const shift = sb - ext.min;
-    const contours = mapContours(glyphContours(strokes, settings), (x, y) => [Math.round(x + y * t + shift), Math.round(y)]);
+    const o = glyphOutline(ch, glyphs, settings);
+    if (!o) continue;
+    const shift = sb - o.min;
     const path = new opentype.Path();
-    for (const c of contours) {
-      for (const cmd of c) {
-        if (cmd[0] === 'M') path.moveTo(cmd[1], cmd[2]);
-        else if (cmd[0] === 'L') path.lineTo(cmd[1], cmd[2]);
-        else if (cmd[0] === 'C') path.curveTo(cmd[1], cmd[2], cmd[3], cmd[4], cmd[5], cmd[6]);
-        else path.close();
-      }
+    const X = x => Math.round(x + shift), Y = y => Math.round(y);
+    for (const c of o.cmds) {
+      if (c[0] === 'M') path.moveTo(X(c[1]), Y(c[2]));
+      else if (c[0] === 'L') path.lineTo(X(c[1]), Y(c[2]));
+      else if (c[0] === 'C') path.curveTo(X(c[1]), Y(c[2]), X(c[3]), Y(c[4]), X(c[5]), Y(c[6]));
+      else path.close();
     }
     const code = ch.charCodeAt(0);
     list.push(new opentype.Glyph({
       name: 'uni' + hex(code),
       unicode: code,
-      advanceWidth: Math.max(1, Math.round(ext.max - ext.min + 2 * sb)),
+      advanceWidth: Math.max(1, Math.round(o.max - o.min + 2 * sb)),
       path,
     }));
     count++;
@@ -75,6 +92,7 @@ export function buildFont(glyphs, settings) {
     descender: -300,
     designer: 'made with handwrite',
     description: 'Handwritten font drawn on screen with handwrite',
+    version: '1.0',
     glyphs: list,
   });
   return { font, count, family };

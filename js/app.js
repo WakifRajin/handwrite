@@ -1,4 +1,4 @@
-import { BOX, GUIDES, METRICS, glyphContours, strokeContours, drawContours, contoursToSvg, simplify, strokeDistance, radiusFor } from './geometry.js';
+import { BOX, GUIDES, METRICS, BRUSHES, glyphContours, strokeContours, drawContours, contoursToSvg, simplify, strokeDistance, brushRadius } from './geometry.js';
 import { CHARSET, GROUPS, groupOf, buildFont, strokesFor } from './font.js';
 
 const $ = sel => document.querySelector(sel);
@@ -7,8 +7,8 @@ const STORE_KEY = 'handwrite:v1';
 
 const DEFAULTS = {
   name: 'My Handwriting',
-  weight: 48, pressure: 0.6, smoothing: 0.35,
-  simPressure: true, palm: true, ghost: true,
+  brush: 'marker', weight: 48, pressure: 0.6, smoothing: 0.2, nibAngle: 35,
+  simPressure: true, palm: true, ghost: true, debug: false,
   spacing: 50, wordSpace: 300, slant: 0, fallbackCase: true,
 };
 
@@ -58,77 +58,111 @@ function loadSaved() {
   } catch { /* ignore */ }
 }
 
-/* ---------------- canvas pad ---------------- */
+/* ---------------- canvas pad ----------------
+   Layers: `base` (guides, ghost letter, finished strokes) is redrawn only when something
+   changes; `ink` gets each new segment of the stroke in progress appended once. A frame
+   is just two drawImage calls plus a short "tip" from the last smoothed point to the
+   raw + predicted pen position, so drawing stays light no matter how busy the glyph is. */
 const pad = $('#pad');
-const ctx = pad.getContext('2d');
-let scale = 1, dpr = 1;
+const ctx = pad.getContext('2d', { desynchronized: true }) || pad.getContext('2d');
+const base = document.createElement('canvas'), bctx = base.getContext('2d');
+const ink = document.createElement('canvas'), ictx = ink.getContext('2d');
+let scale = 1, dpr = 1, baseDirty = true;
 const toPx = (x, y) => [(x - BOX.left) * scale, (BOX.top - y) * scale];
 const toUnits = (px, py) => [px / scale + BOX.left, BOX.top - py / scale];
 
 function resizePad() {
   const rect = pad.getBoundingClientRect();
+  if (!rect.width) return;
   dpr = window.devicePixelRatio || 1;
-  pad.width = Math.round(rect.width * dpr);
-  pad.height = Math.round(rect.width * dpr * BOX.h / BOX.w);
-  scale = pad.width / BOX.w;
+  const w = Math.round(rect.width * dpr), h = Math.round(rect.width * dpr * BOX.h / BOX.w);
+  if (w === pad.width && h === pad.height && scale !== 1) return;
+  for (const c of [pad, base, ink]) { c.width = w; c.height = h; }
+  scale = w / BOX.w;
+  baseDirty = true;
+  redrawInk();
   render();
 }
 
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+let colors = {};
+const readColors = () => { colors = { guide: css('--guide'), guideStrong: css('--guide-strong'), ink: css('--ink'), ghost: css('--ghost'), warn: css('--warn') }; };
 let live = null;      // stroke in progress {pts}
+let liveDrawn = 0;    // how many of live.pts are already on the ink layer
+let tip = null;       // [[x,y,p]...] raw + predicted points ahead of the smoothed stroke
 let hover = null;     // [x, y] in units while a pen hovers
 let erasing = false;
+const invalidate = () => { baseDirty = true; requestRender(); };
+
+function renderBase() {
+  const W = base.width, H = base.height, g = bctx;
+  g.clearRect(0, 0, W, H);
+  g.save();
+  g.font = `${Math.round(13 * dpr)}px "Patrick Hand", sans-serif`;
+  g.textBaseline = 'bottom';
+  for (const gl of GUIDES) {
+    const [, y] = toPx(0, gl.y);
+    g.beginPath();
+    g.lineWidth = (gl.kind === 'base' ? 2.5 : 1.25) * dpr;
+    g.strokeStyle = gl.kind === 'base' ? colors.guideStrong : colors.guide;
+    g.setLineDash(gl.kind === 'dash' ? [10 * dpr, 8 * dpr] : gl.kind === 'dot' ? [2 * dpr, 7 * dpr] : []);
+    g.moveTo(0, y); g.lineTo(W, y); g.stroke();
+    g.fillStyle = g.strokeStyle;
+    g.fillText(gl.label, 8 * dpr, y - 3 * dpr);
+  }
+  g.restore();
+  if (state.settings.ghost) {
+    g.save();
+    g.fillStyle = colors.ghost;
+    g.textAlign = 'center';
+    g.textBaseline = 'alphabetic';
+    g.font = `${Math.round(1000 * scale)}px "Patrick Hand", cursive`;
+    const [cx, by] = toPx(BOX.w / 2, METRICS.baseline);
+    g.fillText(state.current, cx, by);
+    g.restore();
+  }
+  const own = state.glyphs[state.current] || [];
+  const { strokes, borrowed } = own.length ? { strokes: own, borrowed: false } : strokesFor(state.glyphs, state.current, state.settings);
+  $('#borrowedTag').hidden = !borrowed;
+  if (strokes && !(borrowed && live)) {
+    g.fillStyle = borrowed ? colors.ghost : colors.ink;
+    drawContours(g, glyphContours(strokes, state.settings), toPx);
+  }
+  baseDirty = false;
+}
+
+function redrawInk() {
+  ictx.clearRect(0, 0, ink.width, ink.height);
+  liveDrawn = 0;
+  appendInk();
+}
+function appendInk() {
+  if (!live || live.pts.length <= liveDrawn) return;
+  ictx.fillStyle = colors.ink;
+  drawContours(ictx, strokeContours(live, state.settings, { live: true, from: liveDrawn }), toPx);
+  liveDrawn = live.pts.length;
+}
 
 function render() {
-  const W = pad.width, H = pad.height;
-  ctx.clearRect(0, 0, W, H);
-  const guide = css('--guide'), guideStrong = css('--guide-strong'), ink = css('--ink'), ghost = css('--ghost');
-
-  // guide lines
-  ctx.save();
-  ctx.font = `${Math.round(13 * dpr)}px "Patrick Hand", sans-serif`;
-  ctx.textBaseline = 'bottom';
-  for (const g of GUIDES) {
-    const [, y] = toPx(0, g.y);
-    ctx.beginPath();
-    ctx.lineWidth = (g.kind === 'base' ? 2.5 : 1.25) * dpr;
-    ctx.strokeStyle = g.kind === 'base' ? guideStrong : guide;
-    ctx.setLineDash(g.kind === 'dash' ? [10 * dpr, 8 * dpr] : g.kind === 'dot' ? [2 * dpr, 7 * dpr] : []);
-    ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-    ctx.fillStyle = g.kind === 'base' ? guideStrong : guide;
-    ctx.fillText(g.label, 8 * dpr, y - 3 * dpr);
+  if (baseDirty) renderBase();
+  ctx.clearRect(0, 0, pad.width, pad.height);
+  ctx.drawImage(base, 0, 0);
+  if (live) {
+    appendInk();
+    ctx.drawImage(ink, 0, 0);
+    const last = live.pts[live.pts.length - 1];
+    if (tip?.length && last) {
+      ctx.fillStyle = colors.ink;
+      drawContours(ctx, strokeContours({ pts: [last, ...tip] }, state.settings, { live: true }), toPx);
+    }
   }
-  ctx.restore();
-
-  // ghost letter
-  if (state.settings.ghost) {
-    ctx.save();
-    ctx.fillStyle = ghost;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
-    ctx.font = `${Math.round(1000 * scale)}px "Patrick Hand", cursive`;
-    const [cx, by] = toPx(BOX.w / 2, METRICS.baseline);
-    ctx.fillText(state.current, cx, by);
-    ctx.restore();
-  }
-
-  // strokes
-  const own = state.glyphs[state.current] || [];
-  const s = state.settings;
-  const { strokes, borrowed } = own.length ? { strokes: own, borrowed: false } : strokesFor(state.glyphs, state.current, s);
-  $('#borrowedTag').hidden = !(borrowed && !live);
-  ctx.fillStyle = borrowed ? ghost : ink;
-  if (strokes && !(borrowed && live)) drawContours(ctx, glyphContours(strokes, s), toPx);
-  if (live) { ctx.fillStyle = ink; drawContours(ctx, strokeContours(live, s), toPx); }
-
-  // hover cursor for pens / eraser
   if (hover && !live) {
     const [hx, hy] = toPx(hover[0], hover[1]);
+    const eras = erasing || state.tool === 'eraser';
     ctx.beginPath();
     ctx.lineWidth = 1.5 * dpr;
-    ctx.strokeStyle = erasing || state.tool === 'eraser' ? css('--warn') : guideStrong;
-    const r = (erasing || state.tool === 'eraser' ? ERASER_R : radiusFor(0.5, s)) * scale;
-    ctx.arc(hx, hy, Math.max(3 * dpr, r), 0, Math.PI * 2);
+    ctx.strokeStyle = eras ? colors.warn : colors.guideStrong;
+    ctx.arc(hx, hy, Math.max(3 * dpr, (eras ? ERASER_R : brushRadius(state.settings)) * scale), 0, Math.PI * 2);
     ctx.stroke();
   }
 }
@@ -137,14 +171,29 @@ const requestRender = () => { if (!raf) raf = requestAnimationFrame(() => { raf 
 
 /* ---------------- pointer input ---------------- */
 const ERASER_R = 40;
-let activeId = null, penSeen = false, lastT = 0, lastP = 0.6, eraseSnapshot = null;
+let activeId = null, activeType = null, penSeen = false, lastT = 0, lastP = 0.6, eraseSnapshot = null;
 const hint = $('#inputHint');
 
 function setHint(e, p) {
   const type = e.pointerType === 'pen' ? '🖊 pen' : e.pointerType === 'touch' ? '👆 finger' : '🖱 mouse';
-  const pr = e.pointerType === 'pen' ? `pressure ${p.toFixed(2)}` : state.settings.simPressure ? 'speed → pressure' : 'no pressure';
-  const btn = e.pointerType === 'pen' && e.buttons > 1 ? ` · button ${e.buttons}` : '';
+  const pr = e.pointerType === 'pen' ? `pressure ${(+p).toFixed(2)}` : state.settings.simPressure ? 'speed → pressure' : 'no pressure';
+  const btn = e.buttons > 1 ? ` · button ${e.buttons}` : '';
   hint.textContent = `${type} · ${pr}${btn}${erasing ? ' · erasing' : ''}${penSeen && state.settings.palm ? ' · palm rejection on' : ''}`;
+}
+
+// Pen event log (pen settings → "show pen events") — to see what a stylus really sends.
+const penLog = $('#penLog'), logLines = [];
+function logEvent(e) {
+  if (!state.settings.debug) return;
+  const line = `${e.type.replace('pointer', 'ptr-')} ${e.pointerType || '-'} #${e.pointerId ?? '-'} button=${e.button} buttons=${e.buttons}` +
+    (e.pressure !== undefined ? ` p=${(+e.pressure).toFixed(2)}` : '') + (e.tiltX ? ` tilt=${e.tiltX},${e.tiltY}` : '');
+  if (e.type === 'pointermove' && logLines[0]?.startsWith(line.slice(0, 40))) logLines[0] = line; // collapse move spam
+  else logLines.unshift(line);
+  logLines.length = Math.min(logLines.length, 12);
+  penLog.textContent = logLines.join('\n');
+}
+for (const t of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'contextmenu', 'lostpointercapture']) {
+  pad.addEventListener(t, logEvent, { capture: true, passive: true });
 }
 
 function eventUnits(e) {
@@ -175,10 +224,9 @@ function addPoint(e) {
     const k = 1 - state.settings.smoothing;
     x = prev[0] + (x - prev[0]) * k;
     y = prev[1] + (y - prev[1]) * k;
-    if (Math.hypot(x - prev[0], y - prev[1]) < 1.5) { prev[2] = Math.max(prev[2], p); return; }
+    if (Math.hypot(x - prev[0], y - prev[1]) < 1.5) return;
   }
   pts.push([x, y, p]);
-  setHint(e, p);
 }
 
 function eraseAt(e) {
@@ -188,19 +236,21 @@ function eraseAt(e) {
   if (keep.length !== strokes.length) {
     if (!eraseSnapshot) eraseSnapshot = strokes.slice();
     state.glyphs[state.current] = keep;
+    baseDirty = true;
   }
   hover = [x, y];
 }
 
-// Eraser: the eraser tip (Wacom/Surface/Windows Ink report buttons 32 / button 5), or a
-// side/barrel button (S Pen side button arrives as the secondary button: buttons 2 / button 2).
-// Right-dragging with a mouse erases too. Checked on every move, so pressing the S Pen
-// button mid-stroke switches to erasing right away.
+// Eraser triggers: the eraser tip (Wacom/Surface/Windows Ink: buttons 32 / button 5), a side
+// or barrel button (S Pen side button = secondary button: buttons 2 / button 2, which some
+// Android browsers deliver as pointerType "mouse"), or right-drag with a mouse. Checked on
+// every move too, so pressing the button mid-stroke switches to erasing immediately.
 const isEraserEvent = e => !!((e.buttons & 32) || e.button === 5 ||
   (e.pointerType !== 'touch' && ((e.buttons & 2) || e.button === 2)));
 
 function startErasing(e) {
-  live = null;
+  live = null; tip = null;
+  ictx.clearRect(0, 0, ink.width, ink.height);
   erasing = true;
   eraseSnapshot = null;
   eraseAt(e);
@@ -209,18 +259,19 @@ function startErasing(e) {
 
 /* ---------------- palm guard ----------------
    While a pen is drawing or hovering nearby (and for a moment after), touches are palms:
-   block them from scrolling the page, zooming, or tapping buttons. */
-const PEN_GRACE_MS = 1500;
+   block them from scrolling the page, zooming, or tapping buttons. Purely time-based —
+   every pen event re-arms it — so it can never get stuck on. */
+const PEN_GRACE_MS = 1200;
 let lastPenAt = -Infinity, penNearTimer = 0;
 const palmGuardOn = () => state.settings.palm && penSeen;
-const penNear = () => activeId !== null || performance.now() - lastPenAt < PEN_GRACE_MS;
+const penNear = () => performance.now() - lastPenAt < PEN_GRACE_MS;
 function notePen() {
   lastPenAt = performance.now();
   if (!penSeen) { penSeen = true; document.documentElement.classList.toggle('pen-mode', state.settings.palm); }
   if (!state.settings.palm) return;
   document.documentElement.classList.add('pen-near');
   clearTimeout(penNearTimer);
-  penNearTimer = setTimeout(() => { if (activeId === null) document.documentElement.classList.remove('pen-near'); }, PEN_GRACE_MS);
+  penNearTimer = setTimeout(() => document.documentElement.classList.remove('pen-near'), PEN_GRACE_MS);
 }
 for (const type of ['pointerdown', 'pointermove', 'pointerup']) {
   document.addEventListener(type, e => { if (e.pointerType === 'pen') notePen(); }, { capture: true, passive: true });
@@ -233,36 +284,51 @@ document.addEventListener('contextmenu', e => { if (palmGuardOn() && penNear()) 
 pad.addEventListener('pointerdown', e => {
   if (e.pointerType === 'pen') notePen();
   if (e.pointerType === 'touch' && palmGuardOn()) { hint.textContent = '✋ ignored a finger/palm (palm rejection on)'; return; }
-  if (activeId !== null) return;
+  if (activeId !== null) {
+    // a pen/mouse can only be in one place: whatever we were tracking ended without telling us
+    if (e.pointerType === 'touch' && activeType === 'touch') return; // second finger
+    endStroke({ pointerId: activeId, pointerType: activeType, type: 'pointercancel' });
+  }
   if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 2) return;
   e.preventDefault();
   activeId = e.pointerId;
+  activeType = e.pointerType;
   try { pad.setPointerCapture(e.pointerId); } catch { /* synthetic or already-released pointer */ }
   if (state.tool === 'eraser' || isEraserEvent(e)) { startErasing(e); requestRender(); return; }
   erasing = false;
   live = { pts: [] };
+  tip = null;
+  ictx.clearRect(0, 0, ink.width, ink.height);
+  liveDrawn = 0;
   addPoint(e);
+  setHint(e, live.pts[0]?.[2] ?? 0.5);
   requestRender();
 });
 
 pad.addEventListener('pointermove', e => {
-  if (activeId === null) {
-    if (e.pointerType !== 'touch') { hover = eventUnits(e); requestRender(); }
+  if (activeId === null || e.pointerId !== activeId) {
+    if (activeId === null && e.pointerType !== 'touch') { hover = eventUnits(e); requestRender(); }
     return;
   }
-  if (e.pointerId !== activeId) return;
-  const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+  const events = e.getCoalescedEvents?.() || [];
   for (const ev of (events.length ? events : [e])) {
     if (!erasing && isEraserEvent(ev)) startErasing(ev); // side button pressed mid-stroke
     else if (erasing) eraseAt(ev);
     else if (live) addPoint(ev);
   }
+  if (live) {
+    // draw ahead to where the pen really is (and where it's predicted to be) to hide latency
+    const raw = eventUnits(e), p = live.pts[live.pts.length - 1]?.[2] ?? 0.5;
+    tip = [[raw[0], raw[1], p]];
+    for (const pe of (e.getPredictedEvents?.() || []).slice(0, 2)) { const q = eventUnits(pe); tip.push([q[0], q[1], p]); }
+    setHint(e, e.pointerType === 'pen' ? e.pressure : p);
+  } else if (erasing) setHint(e, 0);
   requestRender();
 });
 
 function endStroke(e) {
-  if (e.pointerId !== activeId) return;
-  activeId = null;
+  if (activeId === null || e.pointerId !== activeId) return;
+  activeId = null; activeType = null;
   if (e.pointerType === 'pen') notePen(); // restart the palm grace timer from lift-off
   if (erasing) {
     erasing = false;
@@ -270,21 +336,33 @@ function endStroke(e) {
     eraseSnapshot = null;
   } else if (live) {
     // land exactly where the pen lifted, so smoothing lag doesn't shorten strokes
-    const [x, y] = eventUnits(e);
     const last = live.pts[live.pts.length - 1];
-    if (last && e.type === 'pointerup' && Math.hypot(x - last[0], y - last[1]) > 1.5) live.pts.push([x, y, last[2]]);
+    if (last && e.type === 'pointerup' && e.clientX !== undefined) {
+      const [x, y] = eventUnits(e);
+      if (Math.hypot(x - last[0], y - last[1]) > 1.5) live.pts.push([x, y, last[2]]);
+    }
     const stroke = { pts: simplify(live.pts, 1.2) };
-    live = null;
+    live = null; tip = null;
+    ictx.clearRect(0, 0, ink.width, ink.height);
     const before = state.glyphs[state.current] || [];
     state.glyphs[state.current] = [...before, stroke];
     commit(before);
   }
-  requestRender();
+  invalidate();
 }
 pad.addEventListener('pointerup', endStroke);
 pad.addEventListener('pointercancel', endStroke);
-pad.addEventListener('pointerleave', e => { if (activeId === null) { hover = null; requestRender(); } });
-pad.addEventListener('contextmenu', e => e.preventDefault());
+pad.addEventListener('lostpointercapture', endStroke);
+window.addEventListener('pointerup', endStroke);        // if capture failed, the lift can land elsewhere
+window.addEventListener('pointercancel', endStroke);
+window.addEventListener('blur', () => activeId !== null && endStroke({ pointerId: activeId, pointerType: activeType, type: 'pointercancel' }));
+pad.addEventListener('pointerleave', () => { if (activeId === null) { hover = null; requestRender(); } });
+pad.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  // Some Android builds turn a stylus side-button press into a long-press/contextmenu
+  // mid-stroke instead of a button change: treat that as "switch to eraser".
+  if (activeId !== null && !erasing && activeType !== 'touch') { startErasing(e); requestRender(); }
+});
 
 /** Record that the current glyph changed from `before`. */
 function commit(before) {
@@ -310,21 +388,21 @@ function undo() {
   if (!h.undo.length) return;
   h.redo.push(state.glyphs[state.current] || []);
   state.glyphs[state.current] = h.undo.pop();
-  glyphChanged(); requestRender();
+  glyphChanged(); invalidate();
 }
 function redo() {
   const h = hist(state.current);
   if (!h.redo.length) return;
   h.undo.push(state.glyphs[state.current] || []);
   state.glyphs[state.current] = h.redo.pop();
-  glyphChanged(); requestRender();
+  glyphChanged(); invalidate();
 }
 function clearGlyph() {
   const before = state.glyphs[state.current] || [];
   if (!before.length) return;
   state.glyphs[state.current] = [];
   commit(before);
-  requestRender();
+  invalidate();
   toast(`cleared "${state.current}" — undo brings it back`);
 }
 function updateUndoButtons() {
@@ -401,7 +479,7 @@ function select(ch) {
     else if (right > grid.scrollLeft + grid.clientWidth) grid.scrollLeft = right - grid.clientWidth + 6;
   }
   updateUndoButtons();
-  requestRender();
+  invalidate();
 }
 function step(dir) {
   const list = state.filter === 'all' ? CHARSET : GROUPS[state.filter];
@@ -468,7 +546,7 @@ function saveBlob(blob, name) {
 
 /* ---------------- settings & UI wiring ---------------- */
 const fmt = {
-  weight: v => `${v}`, pressure: v => `${Math.round(v * 100)}%`, smoothing: v => `${Math.round(v * 100)}%`,
+  weight: v => `${v}`, nibAngle: v => `${v}°`, pressure: v => `${Math.round(v * 100)}%`, smoothing: v => `${Math.round(v * 100)}%`,
   spacing: v => `${v}`, wordSpace: v => `${v}`, slant: v => `${v}°`,
 };
 function syncControls() {
@@ -477,18 +555,19 @@ function syncControls() {
     $('#' + k).value = s[k];
     $('#' + k + 'Out').textContent = fmt[k](s[k]);
   }
-  for (const k of ['simPressure', 'palm', 'ghost', 'fallbackCase']) $('#' + k).checked = !!s[k];
+  for (const k of ['simPressure', 'palm', 'ghost', 'fallbackCase', 'debug']) $('#' + k).checked = !!s[k];
   $('#fontName').value = s.name;
+  syncBrush();
 }
 function onSettingChange(key, { thumbs = false, preview = true } = {}) {
   if (thumbs) CHARSET.forEach(updateThumb);
   if (key === 'fallbackCase') updateProgress();
-  requestRender();
+  invalidate();
   scheduleSave();
   if (preview) schedulePreview();
 }
 function wireSettings() {
-  const affectsShape = new Set(['weight', 'pressure']);
+  const affectsShape = new Set(['weight', 'pressure', 'nibAngle']);
   for (const k of Object.keys(fmt)) {
     $('#' + k).addEventListener('input', e => {
       state.settings[k] = parseFloat(e.target.value);
@@ -496,14 +575,28 @@ function wireSettings() {
       onSettingChange(k, { thumbs: affectsShape.has(k), preview: k !== 'smoothing' });
     });
   }
-  for (const k of ['simPressure', 'palm', 'ghost', 'fallbackCase']) {
+  for (const k of ['simPressure', 'palm', 'ghost', 'fallbackCase', 'debug']) {
     $('#' + k).addEventListener('change', e => {
       state.settings[k] = e.target.checked;
+      if (k === 'debug') { penLog.hidden = !e.target.checked; logLines.length = 0; penLog.textContent = 'draw or hover with your pen…'; }
       if (k === 'palm') document.documentElement.classList.toggle('pen-mode', penSeen && e.target.checked);
       onSettingChange(k, { thumbs: k === 'fallbackCase', preview: k === 'fallbackCase' });
     });
   }
   $('#fontName').addEventListener('input', e => { state.settings.name = e.target.value; scheduleSave(); });
+  $$('.brush').forEach(b => b.addEventListener('click', () => {
+    state.settings.brush = b.dataset.brush;
+    syncBrush();
+    onSettingChange('brush', { thumbs: true });
+    toast(`${BRUSHES[b.dataset.brush].label}: ${BRUSHES[b.dataset.brush].hint} — restyles every letter`);
+  }));
+}
+function syncBrush() {
+  const s = state.settings;
+  if (!BRUSHES[s.brush]) s.brush = 'marker';
+  $$('.brush').forEach(b => { const on = b.dataset.brush === s.brush; b.classList.toggle('active', on); b.setAttribute('aria-checked', on); });
+  $('#nibField').hidden = s.brush !== 'chisel';
+  $('#penLog').hidden = !s.debug;
 }
 
 function toast(msg) {
@@ -519,7 +612,9 @@ function setTheme(theme, persist = true) {
   $('#themeToggle').textContent = theme === 'dark' ? '📄 notebook' : '🌙 chalkboard';
   $('meta[name="theme-color"]').content = theme === 'dark' ? '#23302a' : '#fbf6e9';
   if (persist) try { localStorage.setItem('handwrite:theme', theme); } catch { /* ignore */ }
-  requestRender();
+  readColors();
+  redrawInk();
+  invalidate();
 }
 function currentTheme() {
   const t = document.documentElement.dataset.theme;
@@ -576,7 +671,7 @@ function wireUI() {
   });
 
   $('#themeToggle').addEventListener('click', () => setTheme(currentTheme() === 'dark' ? 'light' : 'dark'));
-  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', requestRender);
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { readColors(); invalidate(); });
 
   document.addEventListener('keydown', e => {
     const tag = e.target.tagName;
@@ -609,10 +704,11 @@ buildGrid();
 applyFilter();
 wireSettings();
 wireUI();
+readColors();
 setTheme(currentTheme(), false);
 resizePad();
 afterLoad();
-document.fonts.ready.then(requestRender);
+document.fonts.ready.then(invalidate);
 window.addEventListener('load', schedulePreview);
 
 // handy for debugging from the console

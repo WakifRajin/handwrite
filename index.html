@@ -6,19 +6,29 @@
   <title>handwrite — turn your scribbles into a font</title>
   <meta name="description" content="Draw the alphabet with your stylus, finger or mouse and download it as a real OpenType font. Everything stays in your browser.">
   <meta name="theme-color" content="#fbf6e9">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%9C%8D%EF%B8%8F%3C/text%3E%3C/svg%3E">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="handwrite">
+  <style>#installBtn{position:absolute;top:14px;left:16px;font-size:16px;padding:4px 12px}#installBtn[hidden]{display:none}</style>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Patrick+Hand&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/opentype.js/1.3.4/opentype.min.js" defer></script>
+  <script src="vendor/opentype.min.js" defer></script>
+  <script src="vendor/clipper.js" defer></script>
   <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/pwa.js"></script>
 </head>
 <body>
   <div class="margin-line" aria-hidden="true"></div>
 
   <header class="hero">
     <button class="theme-toggle sketch-btn" id="themeToggle" type="button" title="switch paper">🌙 chalkboard</button>
+    <button class="sketch-btn install-btn" id="installBtn" type="button" hidden>⬇ install app</button>
     <h1 id="title" class="yours">handwrite</h1>
     <p class="tagline">scribble the alphabet &rarr; get a <u>real</u> font file.
       <br>no uploads, no accounts &mdash; it all stays right here in your browser ✌️</p>
@@ -66,7 +76,14 @@
             <button class="sketch-btn warn" id="clearBtn" type="button">✗ clear</button>
             <button class="sketch-btn" id="nextEmptyBtn" type="button" title="jump to the next letter you haven't drawn">next blank ⤳</button>
           </div>
+          <div class="brushes" role="radiogroup" aria-label="brush (restyles the whole font)">
+            <button class="brush" data-brush="fineliner" type="button" role="radio" title="fineliner: even line, ignores pressure">🖊 fineliner</button>
+            <button class="brush" data-brush="marker" type="button" role="radio" title="marker: round tip, a little pressure">🖍 marker</button>
+            <button class="brush" data-brush="brush" type="button" role="radio" title="brush pen: pressure-hungry, tapered ends">🖌 brush pen</button>
+            <button class="brush" data-brush="chisel" type="button" role="radio" title="calligraphy: flat nib, thick and thin by direction">✒️ calligraphy</button>
+          </div>
           <p class="input-hint" id="inputHint">waiting for your pen…</p>
+          <pre class="pen-log" id="penLog" hidden></pre>
         </div>
 
         <aside class="side">
@@ -99,9 +116,13 @@
           </label>
           <label class="check"><input type="checkbox" id="simPressure"> fake pressure from speed (mouse &amp; finger)</label>
           <label class="check"><input type="checkbox" id="palm"> palm rejection — ignore fingers once a pen touches the pad</label>
+          <label class="field" id="nibField">nib angle <output id="nibAngleOut"></output>
+            <input type="range" id="nibAngle" min="0" max="90" step="5">
+          </label>
           <label class="check"><input type="checkbox" id="ghost"> show a faint guide letter</label>
+          <label class="check"><input type="checkbox" id="debug"> show pen events (for troubleshooting a stylus)</label>
         </div>
-        <p class="tiny">pro tip: the eraser end of your pen (or its side button) erases automatically.</p>
+        <p class="tiny">pro tip: the eraser end of your pen, the S Pen side button, or a right-drag with a mouse erases. the brush restyles every letter at once, so try them all!</p>
       </details>
 
     </section>
