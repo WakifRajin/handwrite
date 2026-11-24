@@ -6,7 +6,7 @@ Draw each character on the pad with a stylus, finger, or mouse, watch it show up
 
 ## Features
 
-- **Stylus support**: pressure sensitivity (Apple Pencil, S Pen, Surface, Wacom), high-rate coalesced pointer events, the pen's eraser end and barrel button erase, and palm rejection ignores touches once a pen is used
+- **Stylus support**: pressure sensitivity (Apple Pencil, S Pen, Surface, Wacom), high-rate coalesced pointer events, the eraser end or the S Pen / barrel side button erases (even pressed mid-stroke), and palm rejection ignores touches once a pen is used, blocking palm scrolls and taps while the pen is near
 - **Mouse & finger friendly**: optional speed-based fake pressure
 - Guide lines (ascender, caps, x-height, baseline, descender) plus a faint guide letter
 - 94 characters (A–Z, a–z, 0–9, punctuation) with thumbnails and progress tracking
@@ -15,6 +15,7 @@ Draw each character on the pad with a stylus, finger, or mouse, watch it show up
 - Live font preview: the page title and type tester use your font as you draw
 - Export tweaks: font name, letter spacing, word spacing, slant, and small-caps fallback for missing cases
 - Autosaves locally, and you can save or open project `.json` files
+- Portrait-tablet layout: pad, tools and a swipeable glyph strip fit on one screen
 - Notebook (light) and chalkboard (dark) themes
 - 100% client-side: nothing is uploaded
 

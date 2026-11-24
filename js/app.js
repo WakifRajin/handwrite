@@ -143,7 +143,8 @@ const hint = $('#inputHint');
 function setHint(e, p) {
   const type = e.pointerType === 'pen' ? '🖊 pen' : e.pointerType === 'touch' ? '👆 finger' : '🖱 mouse';
   const pr = e.pointerType === 'pen' ? `pressure ${p.toFixed(2)}` : state.settings.simPressure ? 'speed → pressure' : 'no pressure';
-  hint.textContent = `${type} · ${pr}${erasing ? ' · erasing' : ''}${penSeen && state.settings.palm ? ' · palm rejection on' : ''}`;
+  const btn = e.pointerType === 'pen' && e.buttons > 1 ? ` · button ${e.buttons}` : '';
+  hint.textContent = `${type} · ${pr}${btn}${erasing ? ' · erasing' : ''}${penSeen && state.settings.palm ? ' · palm rejection on' : ''}`;
 }
 
 function eventUnits(e) {
@@ -191,18 +192,54 @@ function eraseAt(e) {
   hover = [x, y];
 }
 
-const isEraserEvent = e => e.pointerType === 'pen' && ((e.buttons & 32) || e.button === 5 || (e.buttons & 2));
+// Eraser: the eraser tip (Wacom/Surface/Windows Ink report buttons 32 / button 5), or a
+// side/barrel button (S Pen side button arrives as the secondary button: buttons 2 / button 2).
+// Right-dragging with a mouse erases too. Checked on every move, so pressing the S Pen
+// button mid-stroke switches to erasing right away.
+const isEraserEvent = e => !!((e.buttons & 32) || e.button === 5 ||
+  (e.pointerType !== 'touch' && ((e.buttons & 2) || e.button === 2)));
+
+function startErasing(e) {
+  live = null;
+  erasing = true;
+  eraseSnapshot = null;
+  eraseAt(e);
+  setHint(e, 0);
+}
+
+/* ---------------- palm guard ----------------
+   While a pen is drawing or hovering nearby (and for a moment after), touches are palms:
+   block them from scrolling the page, zooming, or tapping buttons. */
+const PEN_GRACE_MS = 1500;
+let lastPenAt = -Infinity, penNearTimer = 0;
+const palmGuardOn = () => state.settings.palm && penSeen;
+const penNear = () => activeId !== null || performance.now() - lastPenAt < PEN_GRACE_MS;
+function notePen() {
+  lastPenAt = performance.now();
+  if (!penSeen) { penSeen = true; document.documentElement.classList.toggle('pen-mode', state.settings.palm); }
+  if (!state.settings.palm) return;
+  document.documentElement.classList.add('pen-near');
+  clearTimeout(penNearTimer);
+  penNearTimer = setTimeout(() => { if (activeId === null) document.documentElement.classList.remove('pen-near'); }, PEN_GRACE_MS);
+}
+for (const type of ['pointerdown', 'pointermove', 'pointerup']) {
+  document.addEventListener(type, e => { if (e.pointerType === 'pen') notePen(); }, { capture: true, passive: true });
+}
+const blockPalm = e => { if (palmGuardOn() && penNear() && e.cancelable) e.preventDefault(); };
+document.addEventListener('touchstart', blockPalm, { passive: false });
+document.addEventListener('touchmove', blockPalm, { passive: false });
+document.addEventListener('contextmenu', e => { if (palmGuardOn() && penNear()) e.preventDefault(); });
 
 pad.addEventListener('pointerdown', e => {
-  if (e.pointerType === 'pen') penSeen = true;
-  if (e.pointerType === 'touch' && state.settings.palm && penSeen) { hint.textContent = '✋ ignored a finger/palm (palm rejection on)'; return; }
+  if (e.pointerType === 'pen') notePen();
+  if (e.pointerType === 'touch' && palmGuardOn()) { hint.textContent = '✋ ignored a finger/palm (palm rejection on)'; return; }
   if (activeId !== null) return;
-  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 2) return;
   e.preventDefault();
   activeId = e.pointerId;
   try { pad.setPointerCapture(e.pointerId); } catch { /* synthetic or already-released pointer */ }
-  erasing = state.tool === 'eraser' || isEraserEvent(e);
-  if (erasing) { eraseSnapshot = null; eraseAt(e); setHint(e, 0); requestRender(); return; }
+  if (state.tool === 'eraser' || isEraserEvent(e)) { startErasing(e); requestRender(); return; }
+  erasing = false;
   live = { pts: [] };
   addPoint(e);
   requestRender();
@@ -216,7 +253,9 @@ pad.addEventListener('pointermove', e => {
   if (e.pointerId !== activeId) return;
   const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
   for (const ev of (events.length ? events : [e])) {
-    if (erasing) eraseAt(ev); else if (live) addPoint(ev);
+    if (!erasing && isEraserEvent(ev)) startErasing(ev); // side button pressed mid-stroke
+    else if (erasing) eraseAt(ev);
+    else if (live) addPoint(ev);
   }
   requestRender();
 });
@@ -224,6 +263,7 @@ pad.addEventListener('pointermove', e => {
 function endStroke(e) {
   if (e.pointerId !== activeId) return;
   activeId = null;
+  if (e.pointerType === 'pen') notePen(); // restart the palm grace timer from lift-off
   if (erasing) {
     erasing = false;
     if (eraseSnapshot) commit(eraseSnapshot);
@@ -310,7 +350,11 @@ function buildGrid() {
     b.setAttribute('aria-label', `draw ${ch}`);
     b.innerHTML = `<span class="cell-label"></span><svg viewBox="${BOX.left} ${-BOX.top} ${BOX.w} ${BOX.h}" aria-hidden="true"><line class="cell-base" x1="0" x2="${BOX.w}" y1="0" y2="0"/><path/></svg>`;
     b.querySelector('.cell-label').textContent = ch;
-    b.addEventListener('click', () => { select(ch); if (matchMedia('(max-width: 860px)').matches) pad.scrollIntoView({ behavior: 'smooth', block: 'center' }); });
+    b.addEventListener('click', () => {
+      select(ch);
+      const r = pad.getBoundingClientRect();
+      if (r.top < 0 || r.bottom > innerHeight) pad.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
     grid.appendChild(b);
     cells.set(ch, b);
   }
@@ -352,6 +396,9 @@ function select(ch) {
     const top = cell.offsetTop, bottom = top + cell.offsetHeight;
     if (top < grid.scrollTop) grid.scrollTop = top - 6;
     else if (bottom > grid.scrollTop + grid.clientHeight) grid.scrollTop = bottom - grid.clientHeight + 6;
+    const left = cell.offsetLeft, right = left + cell.offsetWidth; // horizontal strip (portrait tablets)
+    if (left < grid.scrollLeft) grid.scrollLeft = left - 6;
+    else if (right > grid.scrollLeft + grid.clientWidth) grid.scrollLeft = right - grid.clientWidth + 6;
   }
   updateUndoButtons();
   requestRender();
@@ -452,6 +499,7 @@ function wireSettings() {
   for (const k of ['simPressure', 'palm', 'ghost', 'fallbackCase']) {
     $('#' + k).addEventListener('change', e => {
       state.settings[k] = e.target.checked;
+      if (k === 'palm') document.documentElement.classList.toggle('pen-mode', penSeen && e.target.checked);
       onSettingChange(k, { thumbs: k === 'fallbackCase', preview: k === 'fallbackCase' });
     });
   }

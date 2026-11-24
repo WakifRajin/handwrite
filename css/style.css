@@ -242,3 +242,51 @@ footer p { margin: 4px 0; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; }
 }
+
+/* ---------- palm rejection ---------- */
+html { overscroll-behavior-y: none; }               /* no pull-to-refresh from a dragging palm */
+.pen-mode .pad-col,
+.pen-mode .progress-wrap,
+.pen-mode .filters { touch-action: none; }         /* a palm resting by the pad never scrolls the page */
+.pen-near, .pen-near body { touch-action: none; }   /* pen drawing or hovering: palms can't pan anywhere */
+.pen-near .grid { touch-action: none; }
+.studio { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+
+/* ---------- portrait tablets: the whole studio fits on one screen ---------- */
+@media (orientation: portrait) and (min-width: 600px) and (max-width: 1100px) {
+  :root { --studio-chrome: 410px; }
+  main { padding-left: 12px; padding-right: 12px; }
+  .card { padding-left: 18px; padding-right: 18px; }
+  .studio {
+    grid-template-columns: 1fr; gap: 10px;
+    scroll-margin-top: 8px;
+    min-height: calc(100dvh - 16px);
+    align-content: start;
+  }
+  .pad-col { display: flex; flex-direction: column; align-items: center; }
+  .pad-head { width: 100%; margin-bottom: 6px; }
+  .current-char { font-size: 50px; min-height: 50px; }
+  .pad-wrap { width: min(100%, calc((100dvh - var(--studio-chrome)) * 1200 / 1300)); }
+  #pad { max-height: none; }
+  .toolbar { justify-content: center; gap: 8px; margin-top: 10px; flex-wrap: nowrap; }
+  .toolbar .sketch-btn { font-size: 18px; padding: 8px 12px; min-height: 48px; white-space: nowrap; }
+  .input-hint { text-align: center; margin-top: 6px; }
+  .side { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 16px; align-items: center; }
+  .progress-wrap { margin: 0; }
+  .filters { margin: 0; justify-content: flex-end; }
+  .chip { padding: 6px 14px; }
+  .grid {
+    grid-column: 1 / -1; margin-top: 10px;
+    grid-auto-flow: column; grid-template-columns: none;
+    grid-template-rows: 96px; grid-auto-columns: 88px;
+    max-height: none; overflow-x: auto; overflow-y: hidden;
+    padding: 4px 4px 10px; touch-action: pan-x;
+  }
+  .hero { padding-top: 56px; }
+}
+/* small portrait tablets (iPad mini, 8" Android): tighten the toolbar */
+@media (orientation: portrait) and (min-width: 600px) and (max-width: 780px) {
+  .toolbar .sketch-btn { font-size: 16px; padding: 8px 9px; }
+  #nextEmptyBtn { font-size: 0; }
+  #nextEmptyBtn::after { content: "⤳"; font-size: 20px; }
+}
