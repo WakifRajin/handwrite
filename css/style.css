@@ -302,6 +302,4 @@ html { overscroll-behavior-y: none; }               /* no pull-to-refresh from a
 /* small portrait tablets (iPad mini, 8" Android): tighten the toolbar */
 @media (orientation: portrait) and (min-width: 600px) and (max-width: 780px) {
   .toolbar .sketch-btn { font-size: 16px; padding: 8px 9px; }
-  #nextEmptyBtn { font-size: 0; }
-  #nextEmptyBtn::after { content: "⤳"; font-size: 20px; }
 }

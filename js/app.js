@@ -175,13 +175,13 @@ let activeId = null, activeType = null, penSeen = false, lastT = 0, lastP = 0.6,
 const hint = $('#inputHint');
 
 function setHint(e, p) {
-  const type = e.pointerType === 'pen' ? '🖊 pen' : e.pointerType === 'touch' ? '👆 finger' : '🖱 mouse';
-  const pr = e.pointerType === 'pen' ? `pressure ${(+p).toFixed(2)}` : state.settings.simPressure ? 'speed → pressure' : 'no pressure';
+  const type = e.pointerType === 'pen' ? 'pen' : e.pointerType === 'touch' ? 'finger' : 'mouse';
+  const pr = e.pointerType === 'pen' ? `pressure ${(+p).toFixed(2)}` : state.settings.simPressure ? 'pressure from speed' : 'no pressure';
   const btn = e.buttons > 1 ? ` · button ${e.buttons}` : '';
   hint.textContent = `${type} · ${pr}${btn}${erasing ? ' · erasing' : ''}${penSeen && state.settings.palm ? ' · palm rejection on' : ''}`;
 }
 
-// Pen event log (pen settings → "show pen events") — to see what a stylus really sends.
+// Pen event log (pen settings > "show pen events") — to see what a stylus really sends.
 const penLog = $('#penLog'), logLines = [];
 function logEvent(e) {
   if (!state.settings.debug) return;
@@ -283,7 +283,7 @@ document.addEventListener('contextmenu', e => { if (palmGuardOn() && penNear()) 
 
 pad.addEventListener('pointerdown', e => {
   if (e.pointerType === 'pen') notePen();
-  if (e.pointerType === 'touch' && palmGuardOn()) { hint.textContent = '✋ ignored a finger/palm (palm rejection on)'; return; }
+  if (e.pointerType === 'touch' && palmGuardOn()) { hint.textContent = 'ignored a touch (palm rejection is on)'; return; }
   if (activeId !== null) {
     // a pen/mouse can only be in one place: whatever we were tracking ended without telling us
     if (e.pointerType === 'touch' && activeType === 'touch') return; // second finger
@@ -403,7 +403,7 @@ function clearGlyph() {
   state.glyphs[state.current] = [];
   commit(before);
   invalidate();
-  toast(`cleared "${state.current}" — undo brings it back`);
+  toast(`cleared "${state.current}" (undo brings it back)`);
 }
 function updateUndoButtons() {
   const h = hist(state.current);
@@ -456,9 +456,7 @@ function updateProgress() {
   const n = CHARSET.filter(ch => state.glyphs[ch]?.length).length;
   $('#progressText').textContent = `${n} / ${CHARSET.length} drawn`;
   $('#progressFill').style.width = `${(n / CHARSET.length) * 100}%`;
-  const cheer = n === 0 ? '' : n < 10 ? 'nice start!' : n < 26 ? 'keep going ✨' : n < 52 ? 'look at you go!' : n < CHARSET.length ? 'almost a whole font!' : 'all done!! 🎉';
-  $('#progressCheer').textContent = cheer;
-  $('#downloadHint').textContent = n ? `${n} glyph${n === 1 ? '' : 's'} ready${state.settings.fallbackCase ? ' (+ borrowed case swaps)' : ''}` : 'draw at least one letter first!';
+  $('#downloadHint').textContent = n ? `${n} glyph${n === 1 ? '' : 's'} ready${state.settings.fallbackCase ? ', plus small-cap fallbacks' : ''}` : 'draw at least one letter first.';
   $('#downloadBtn').disabled = n === 0;
 }
 
@@ -493,7 +491,7 @@ function nextEmpty() {
     const ch = CHARSET[(i + k) % CHARSET.length];
     if (!state.glyphs[ch]?.length) return select(ch);
   }
-  toast('every single character is drawn. legend. 🏆');
+  toast('every character is drawn');
 }
 
 /* ---------------- live font preview ---------------- */
@@ -528,11 +526,11 @@ async function refreshPreview() {
 
 function download() {
   const { font, count, family } = buildFont(state.glyphs, state.settings);
-  if (!count) return toast('draw a letter or two first ✏️');
+  if (!count) return toast('draw at least one letter first');
   const blob = new Blob([font.toArrayBuffer()], { type: 'font/otf' });
   const fname = family.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || 'handwriting';
   saveBlob(blob, `${fname}.otf`);
-  toast(`saved ${fname}.otf — double-click it to install 🎉`);
+  toast(`saved ${fname}.otf`);
 }
 function saveBlob(blob, name) {
   const a = document.createElement('a');
@@ -588,7 +586,7 @@ function wireSettings() {
     state.settings.brush = b.dataset.brush;
     syncBrush();
     onSettingChange('brush', { thumbs: true });
-    toast(`${BRUSHES[b.dataset.brush].label}: ${BRUSHES[b.dataset.brush].hint} — restyles every letter`);
+    toast(`${BRUSHES[b.dataset.brush].label}: ${BRUSHES[b.dataset.brush].hint}`);
   }));
 }
 function syncBrush() {
@@ -609,7 +607,7 @@ function toast(msg) {
 
 function setTheme(theme, persist = true) {
   document.documentElement.dataset.theme = theme;
-  $('#themeToggle').textContent = theme === 'dark' ? '📄 notebook' : '🌙 chalkboard';
+  $('#themeToggle').textContent = theme === 'dark' ? 'light mode' : 'dark mode';
   $('meta[name="theme-color"]').content = theme === 'dark' ? '#23302a' : '#fbf6e9';
   if (persist) try { localStorage.setItem('handwrite:theme', theme); } catch { /* ignore */ }
   readColors();
@@ -646,7 +644,7 @@ function wireUI() {
   $('#saveBtn').addEventListener('click', () => {
     const blob = new Blob([JSON.stringify(serialize())], { type: 'application/json' });
     saveBlob(blob, `${(state.settings.name || 'handwriting').replace(/[^\w\-]+/g, '-')}.handwrite.json`);
-    toast('project saved 💾');
+    toast('project saved');
   });
   $('#loadInput').addEventListener('change', async e => {
     const file = e.target.files[0];
@@ -656,18 +654,18 @@ function wireUI() {
       hydrate(JSON.parse(await file.text()));
       history.clear();
       afterLoad();
-      toast(`opened ${file.name} 📂`);
+      toast(`opened ${file.name}`);
     } catch (err) {
-      toast("hmm, that file doesn't look like a handwrite project 🤔");
+      toast("that file isn't a handwrite project");
     }
   });
   $('#resetBtn').addEventListener('click', () => {
-    if (!confirm('erase every letter and start fresh? (save a project file first if you want to keep it)')) return;
+    if (!confirm('Erase every letter and start over? Save a project file first if you want to keep this one.')) return;
     state.glyphs = {};
     state.settings = { ...DEFAULTS };
     history.clear();
     afterLoad();
-    toast('fresh page! ✨');
+    toast('started over');
   });
 
   $('#themeToggle').addEventListener('click', () => setTheme(currentTheme() === 'dark' ? 'light' : 'dark'));

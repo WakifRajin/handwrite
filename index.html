@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>handwrite — turn your scribbles into a font</title>
+  <title>handwrite — make a font from your handwriting</title>
   <meta name="description" content="Draw the alphabet with your stylus, finger or mouse and download it as a real OpenType font. Everything stays in your browser.">
   <meta name="theme-color" content="#fbf6e9">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
@@ -27,11 +27,11 @@
   <div class="margin-line" aria-hidden="true"></div>
 
   <header class="hero">
-    <button class="theme-toggle sketch-btn" id="themeToggle" type="button" title="switch paper">🌙 chalkboard</button>
-    <button class="sketch-btn install-btn" id="installBtn" type="button" hidden>⬇ install app</button>
+    <button class="theme-toggle sketch-btn" id="themeToggle" type="button" title="switch theme">dark mode</button>
+    <button class="sketch-btn install-btn" id="installBtn" type="button" hidden>install app</button>
     <h1 id="title" class="yours">handwrite</h1>
-    <p class="tagline">scribble the alphabet &rarr; get a <u>real</u> font file.
-      <br>no uploads, no accounts &mdash; it all stays right here in your browser ✌️</p>
+    <p class="tagline">draw the alphabet, download it as a font.
+      <br>everything stays in your browser.</p>
     <svg class="squiggle" viewBox="0 0 300 24" aria-hidden="true"><path d="M4 14c20-14 34 10 54 0s34-12 52 0 34 10 54 0 34-12 52 0 34 10 54 0" /></svg>
   </header>
 
@@ -39,7 +39,7 @@
     <!-- 1. DRAW -->
     <section class="card" id="draw">
       <aside class="sticky-note" aria-label="tips">
-        <strong>tips!</strong>
+        <strong>tips</strong>
         <ul>
           <li>sit letters on the <b>baseline</b></li>
           <li>lowercase tops hit the dashed <b>x-height</b></li>
@@ -48,7 +48,7 @@
         </ul>
       </aside>
       <h2><span class="num">1</span> draw your letters</h2>
-      <p class="sub">pick a character, draw it on the pad. stylus pressure works (Apple Pencil, S Pen, Surface &amp; Wacom pens). no pen? mouse or finger is fine too.</p>
+      <p class="sub">pick a character, draw it on the pad. stylus pressure works with Apple Pencil, S Pen, Surface and Wacom pens. a mouse or finger works too.</p>
 
       <div class="studio">
         <div class="pad-col">
@@ -68,19 +68,19 @@
 
           <div class="toolbar" role="toolbar" aria-label="drawing tools">
             <div class="seg" role="radiogroup" aria-label="tool">
-              <button class="sketch-btn tool active" data-tool="pen" type="button" aria-pressed="true">✏️ pen</button>
-              <button class="sketch-btn tool" data-tool="eraser" type="button" aria-pressed="false">🧽 eraser</button>
+              <button class="sketch-btn tool active" data-tool="pen" type="button" aria-pressed="true">pen</button>
+              <button class="sketch-btn tool" data-tool="eraser" type="button" aria-pressed="false">eraser</button>
             </div>
-            <button class="sketch-btn" id="undoBtn" type="button" title="undo (Ctrl+Z)">↶ undo</button>
-            <button class="sketch-btn" id="redoBtn" type="button" title="redo (Ctrl+Shift+Z)">↷ redo</button>
-            <button class="sketch-btn warn" id="clearBtn" type="button">✗ clear</button>
-            <button class="sketch-btn" id="nextEmptyBtn" type="button" title="jump to the next letter you haven't drawn">next blank ⤳</button>
+            <button class="sketch-btn" id="undoBtn" type="button" title="undo (Ctrl+Z)">undo</button>
+            <button class="sketch-btn" id="redoBtn" type="button" title="redo (Ctrl+Shift+Z)">redo</button>
+            <button class="sketch-btn warn" id="clearBtn" type="button">clear</button>
+            <button class="sketch-btn" id="nextEmptyBtn" type="button" title="jump to the next letter you haven't drawn">next blank</button>
           </div>
           <div class="brushes" role="radiogroup" aria-label="brush (restyles the whole font)">
-            <button class="brush" data-brush="fineliner" type="button" role="radio" title="fineliner: even line, ignores pressure">🖊 fineliner</button>
-            <button class="brush" data-brush="marker" type="button" role="radio" title="marker: round tip, a little pressure">🖍 marker</button>
-            <button class="brush" data-brush="brush" type="button" role="radio" title="brush pen: pressure-hungry, tapered ends">🖌 brush pen</button>
-            <button class="brush" data-brush="chisel" type="button" role="radio" title="calligraphy: flat nib, thick and thin by direction">✒️ calligraphy</button>
+            <button class="brush" data-brush="fineliner" type="button" role="radio" title="fineliner: even line, ignores pressure">fineliner</button>
+            <button class="brush" data-brush="marker" type="button" role="radio" title="marker: round tip, a little pressure">marker</button>
+            <button class="brush" data-brush="brush" type="button" role="radio" title="brush pen: pressure-hungry, tapered ends">brush pen</button>
+            <button class="brush" data-brush="chisel" type="button" role="radio" title="calligraphy: flat nib, thick and thin by direction">calligraphy</button>
           </div>
           <p class="input-hint" id="inputHint">waiting for your pen…</p>
           <pre class="pen-log" id="penLog" hidden></pre>
@@ -88,7 +88,7 @@
 
         <aside class="side">
           <div class="progress-wrap">
-            <div class="progress-label"><span id="progressText">0 / 94 drawn</span><span id="progressCheer"></span></div>
+            <div class="progress-label"><span id="progressText">0 / 94 drawn</span></div>
             <div class="progress"><div class="progress-fill" id="progressFill"></div></div>
           </div>
           <div class="filters" role="tablist" aria-label="character groups">
@@ -103,7 +103,7 @@
       </div>
 
       <details class="settings">
-        <summary>✎ pen settings</summary>
+        <summary>pen settings</summary>
         <div class="settings-grid">
           <label class="field">stroke weight <output id="weightOut"></output>
             <input type="range" id="weight" min="16" max="140" step="1">
@@ -122,32 +122,32 @@
           <label class="check"><input type="checkbox" id="ghost"> show a faint guide letter</label>
           <label class="check"><input type="checkbox" id="debug"> show pen events (for troubleshooting a stylus)</label>
         </div>
-        <p class="tiny">pro tip: the eraser end of your pen, the S Pen side button, or a right-drag with a mouse erases. the brush restyles every letter at once, so try them all!</p>
+        <p class="tiny">the eraser end of a pen, the S Pen side button and a right-drag with a mouse all erase. changing the brush restyles every letter.</p>
       </details>
 
     </section>
 
     <!-- 2. TRY -->
     <section class="card" id="try">
-      <h2><span class="num">2</span> take it for a spin</h2>
-      <p class="sub">type anything below — it's using your font live. letters you haven't drawn yet show up in a stand-in hand.</p>
+      <h2><span class="num">2</span> try it</h2>
+      <p class="sub">type below to see your font. characters you haven't drawn yet use a stand-in font.</p>
       <div class="tester-controls">
         <label class="field inline">size <output id="sizeOut"></output>
           <input type="range" id="testSize" min="16" max="160" step="1" value="56">
         </label>
         <div class="samples">
           <button class="chip" type="button" data-sample="The quick brown fox jumps over the lazy dog.">quick fox</button>
-          <button class="chip" type="button" data-sample="Dear diary, today I made a font out of my own handwriting!">dear diary</button>
+          <button class="chip" type="button" data-sample="Dear diary, today I made a font out of my own handwriting.">dear diary</button>
           <button class="chip" type="button" data-sample="ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789 .,!?&amp;@#$%">everything</button>
-          <button class="chip" type="button" data-sample="Sphinx of black quartz, judge my vow! (42% sure)">sphinx</button>
+          <button class="chip" type="button" data-sample="Sphinx of black quartz, judge my vow.">sphinx</button>
         </div>
       </div>
-      <textarea id="tester" class="tester yours" spellcheck="false" aria-label="type tester">Hello there! This is my handwriting.</textarea>
+      <textarea id="tester" class="tester yours" spellcheck="false" aria-label="type tester">Hello, this is my handwriting.</textarea>
     </section>
 
     <!-- 3. EXPORT -->
     <section class="card" id="export">
-      <h2><span class="num">3</span> tweak &amp; take it home</h2>
+      <h2><span class="num">3</span> export</h2>
       <div class="export-grid">
         <div class="tweaks">
           <label class="field">font name
@@ -165,22 +165,22 @@
           <label class="check"><input type="checkbox" id="fallbackCase"> fill missing lowercase with small capitals (and vice-versa)</label>
         </div>
         <div class="actions">
-          <button class="sketch-btn big primary" id="downloadBtn" type="button">⬇ download .otf</button>
-          <p class="tiny" id="downloadHint">draw at least one letter first!</p>
+          <button class="sketch-btn big primary" id="downloadBtn" type="button">download .otf</button>
+          <p class="tiny" id="downloadHint">draw at least one letter first.</p>
           <div class="row">
-            <button class="sketch-btn" id="saveBtn" type="button">💾 save project</button>
-            <label class="sketch-btn file-btn">📂 open project<input type="file" id="loadInput" accept=".json,application/json" hidden></label>
+            <button class="sketch-btn" id="saveBtn" type="button">save project</button>
+            <label class="sketch-btn file-btn">open project<input type="file" id="loadInput" accept=".json,application/json" hidden></label>
           </div>
-          <button class="sketch-btn warn" id="resetBtn" type="button">🔥 start over</button>
-          <p class="tiny">your drawing autosaves in this browser. "save project" gives you a file you can keep or move to another device.</p>
+          <button class="sketch-btn warn" id="resetBtn" type="button">start over</button>
+          <p class="tiny">your work autosaves in this browser. "save project" downloads a file you can keep or open on another device.</p>
         </div>
       </div>
     </section>
   </main>
 
   <footer>
-    <p>made with a wobbly hand ✍️ · works offline once loaded · fonts are yours to keep</p>
-    <p class="tiny">.otf works in Windows, macOS, Linux, Word, Figma, Canva, Photoshop… install it like any other font.</p>
+    <p>works offline once loaded. the fonts you make are yours.</p>
+    <p class="tiny">.otf fonts install like any other font on Windows, macOS and Linux.</p>
   </footer>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>

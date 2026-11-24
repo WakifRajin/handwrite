@@ -24,10 +24,10 @@ export const GUIDES = [
 ];
 
 export const BRUSHES = {
-  fineliner: { label: 'fineliner', icon: '🖊', hint: 'even line, ignores pressure' },
-  marker: { label: 'marker', icon: '🖍', hint: 'round tip, a little pressure' },
-  brush: { label: 'brush pen', icon: '🖌', hint: 'pressure-hungry, tapered ends' },
-  chisel: { label: 'calligraphy', icon: '✒️', hint: 'flat nib: thick & thin by direction' },
+  fineliner: { label: 'fineliner', hint: 'even line, ignores pressure' },
+  marker: { label: 'marker', hint: 'round tip, some pressure' },
+  brush: { label: 'brush pen', hint: 'strong pressure, tapered ends' },
+  chisel: { label: 'calligraphy', hint: 'flat nib, thick and thin by direction' },
 };
 
 /* ---------------- per-point sizes ---------------- */

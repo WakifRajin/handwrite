@@ -45,7 +45,7 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (hadController && !notified) {
       notified = true;
-      toast('updated! ✨ reload for the newest version');
+      toast('update installed, reload to use it');
     }
   });
   window.addEventListener('load', () => {
@@ -54,7 +54,7 @@ if ('serviceWorker' in navigator) {
         const w = reg.installing;
         if (!w || hadController) return;
         w.addEventListener('statechange', () => {
-          if (w.state === 'installed') toast('ready to work offline 📴');
+          if (w.state === 'installed') toast('ready to work offline');
         });
       });
     }).catch(() => {});
